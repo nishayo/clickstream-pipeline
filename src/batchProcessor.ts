@@ -23,7 +23,9 @@ async function setupDatabase() {
   await pgClient.query(`
     CREATE TABLE IF NOT EXISTS scroll_events (
       url TEXT PRIMARY KEY,
-      scroll_count INT DEFAULT 0
+      scroll_count INT DEFAULT 0,
+      user_id INT,
+      timestamp BIGINT
     )
   `);
 }
@@ -32,42 +34,54 @@ async function setupDatabase() {
 async function processScrollData() {
   return new Promise<void>((resolve, reject) => {
     const objectsStream = minioClient.listObjects("clickstream-storage", "", true);
-    const scrollCounts: Record<string, number> = {};
+    const scrollCounts: Record<string, { count: number, user_id: number, timestamp: number }> = {};
+    const promises: Promise<void>[] = [];  // Track all async operations
 
-    objectsStream.on("data", async (obj) => {
-      try {
-        if (!obj.name) {
-          console.error("Skipping object with undefined name");
-          return;
+    objectsStream.on("data", (obj) => {
+      const promise = (async () => {
+        try {
+          if (!obj.name) {
+            console.error("Skipping object with undefined name");
+            return;
+          }
+          console.log("Processing object:", obj.name);
+          const dataStream = await minioClient.getObject("clickstream-storage", obj.name);
+
+          const event = JSON.parse(await streamToString(dataStream));
+          console.log("Event data:", event);
+
+          if (!scrollCounts[event.url]) {
+            scrollCounts[event.url] = { count: 0, user_id: event.user_id, timestamp: event.timestamp };
+          }
+          scrollCounts[event.url].count += 1;
+          console.log("Updated scrollCounts:", scrollCounts);
+
+          // Delete after processing
+          await minioClient.removeObject("clickstream-storage", obj.name);
+        } catch (err) {
+          console.error(`Error processing object: ${obj.name}`, err);
         }
-        console.log("obj : ", obj);
-        const dataStream = await minioClient.getObject("clickstream-storage", obj.name);
-        console.log("dataStream : ", dataStream);
-
-        const event = JSON.parse(await streamToString(dataStream));
-        console.log("event : ", event);
-
-        scrollCounts[event.url] = (scrollCounts[event.url] || 0) + 1;
-        
-        // Delete after processing
-        await minioClient.removeObject("clickstream-storage", obj.name);
-      } catch (err) {
-        console.error(`Error processing object: ${obj.name}`, err);
-      }
+      })();
+      promises.push(promise);
     });
 
     objectsStream.on("end", async () => {
+      await Promise.all(promises); // Ensure all "data" handlers finish
+
       console.log("Processed all objects:", scrollCounts);
 
       try {
-        for (const [url, count] of Object.entries(scrollCounts)) {
-          await pgClient.query(
-            `INSERT INTO scroll_events (url, scroll_count)
-             VALUES ($1, $2)
-             ON CONFLICT (url)
-             DO UPDATE SET scroll_count = scroll_events.scroll_count + $2`,
-            [url, count]
-          );
+        for (const [url, data] of Object.entries(scrollCounts)) {
+          const query = `
+            INSERT INTO scroll_events (url, scroll_count, user_id, timestamp)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (url)
+            DO UPDATE SET scroll_count = scroll_events.scroll_count + $2
+          `;
+          const values = [url, data.count, data.user_id, data.timestamp];
+          console.log("Executing query:", query, "with values:", values);
+
+          await pgClient.query(query, values);
         }
       } catch (err) {
         console.error("Error inserting into PostgreSQL:", err);
@@ -82,6 +96,7 @@ async function processScrollData() {
     });
   });
 }
+
 
 // Convert stream to string
 function streamToString(stream: any): Promise<string> {
