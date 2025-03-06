@@ -12,11 +12,13 @@ services:
       - "9092:9092"
     environment:
       KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
       KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092" 
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
     depends_on:
       - zookeeper
+    restart: always
 
   postgres:
     image: postgres
@@ -58,6 +60,30 @@ services:
       MB_DB_FILE: /metabase.db/metabase.db
     depends_on:
       - postgres
+
+  node-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: node-app
+    ports:
+      - "4000:4000"
+    environment:
+      PGUSER: user
+      PGPASSWORD: password
+      PGDATABASE: clickstream
+      PGHOST: postgres
+      PGPORT: 5432
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      KAFKA_BROKER: kafka:9092
+    depends_on:
+      - postgres
+      - minio
+      - kafka
+    restart: always
 
 volumes:
   postgres_data:

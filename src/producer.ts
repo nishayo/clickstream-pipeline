@@ -1,6 +1,6 @@
 import { Kafka } from "kafkajs";
 
-const kafka = new Kafka({ brokers: ["localhost:9092"] });
+const kafka = new Kafka({ brokers: ["kafka:9092"] });
 const producer = kafka.producer();
 
 async function sendMessage(event: object) {

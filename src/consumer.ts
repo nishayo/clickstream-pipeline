@@ -3,14 +3,14 @@ import pkg from 'pg';
 const { Client } = pkg;
 import * as Minio from "minio";
 
-const kafka = new Kafka({ brokers: ["localhost:9092"] });
+const kafka = new Kafka({ brokers: ["kafka:9092"] });
 const consumer = kafka.consumer({ groupId: "clickstream-group" });
 
-const pgClient = new Client({ user: "user", password: "password", database: "clickstream", host: "localhost" });
+const pgClient = new Client({ user: "user", password: "password", database: "clickstream", host: "postgres" });
 pgClient.connect();
 
 const minioClient = new Minio.Client({
-  endPoint: "localhost",
+  endPoint: "minio",
   port: 9000,
   useSSL: false,
   accessKey: "minioadmin",
