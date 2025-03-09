@@ -108,7 +108,7 @@ function streamToString(stream: any): Promise<string> {
   });
 }
 
-// Setup DB and run processScrollData every 1 minute
+// Setup DB and run processScrollData every 15 seconds
 setupDatabase().then(() => {
-  setInterval(processScrollData, 1000);
+  setInterval(processScrollData, 15000);
 });

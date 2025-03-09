@@ -45,22 +45,6 @@ services:
     volumes:
       - minio_data:/data
 
-  metabase:
-    image: metabase/metabase
-    container_name: metabase
-    ports:
-      - "3000:3000"
-    environment:
-      MB_DB_TYPE: postgres
-      MB_DB_DBNAME: clickstream
-      MB_DB_PORT: 5432
-      MB_DB_USER: user
-      MB_DB_PASS: password
-      MB_DB_HOST: postgres
-      MB_DB_FILE: /metabase.db/metabase.db
-    depends_on:
-      - postgres
-
   node-app:
     build:
       context: .
@@ -85,6 +69,32 @@ services:
       - kafka
     restart: always
 
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    depends_on:
+      - node-app
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+
 volumes:
   postgres_data:
   minio_data:
+  grafana_data:
