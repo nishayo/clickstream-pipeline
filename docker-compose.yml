@@ -51,7 +51,8 @@ services:
       dockerfile: Dockerfile
     container_name: node-app
     ports:
-      - "4000:4000"
+      - "4000:4000"  # Dashboard
+      - "4001:4001"  # Metrics
     environment:
       PGUSER: user
       PGPASSWORD: password
@@ -63,6 +64,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       KAFKA_BROKER: kafka:9092
+      DASHBOARD_PORT: 4000
+      SOCKET_PORT: 4001
     depends_on:
       - postgres
       - minio
@@ -81,20 +84,6 @@ services:
     depends_on:
       - node-app
 
-  grafana:
-    image: grafana/grafana
-    container_name: grafana
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    depends_on:
-      - prometheus
-    volumes:
-      - grafana_data:/var/lib/grafana
-
 volumes:
   postgres_data:
   minio_data:
-  grafana_data:

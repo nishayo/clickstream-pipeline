@@ -1,21 +1,27 @@
 import pkg from 'pg';
 const { Client } = pkg;
 import * as Minio from "minio";
+import client from 'prom-client';
 
 const pgClient = new Client({
   user: "user",
   password: "password",
   database: "clickstream",
-  host: "localhost",
+  host: "postgres"
 });
 pgClient.connect();
 
 const minioClient = new Minio.Client({
-  endPoint: "localhost",
+  endPoint: "minio",
   port: 9000,
   useSSL: false,
   accessKey: "minioadmin",
-  secretKey: "minioadmin",
+  secretKey: "minioadmin"
+});
+
+const minioObjectCount = new client.Gauge({
+  name: "minio_objects_count",
+  help: "Number of objects in MinIO storage",
 });
 
 // Ensure the table exists
@@ -36,6 +42,7 @@ async function processScrollData() {
     const objectsStream = minioClient.listObjects("clickstream-storage", "", true);
     const scrollCounts: Record<string, { count: number, user_id: number, timestamp: number }> = {};
     const promises: Promise<void>[] = [];  // Track all async operations
+    let objectCount = 0;
 
     objectsStream.on("data", (obj) => {
       const promise = (async () => {
@@ -58,6 +65,7 @@ async function processScrollData() {
 
           // Delete after processing
           await minioClient.removeObject("clickstream-storage", obj.name);
+          objectCount++;
         } catch (err) {
           console.error(`Error processing object: ${obj.name}`, err);
         }
@@ -87,6 +95,7 @@ async function processScrollData() {
         console.error("Error inserting into PostgreSQL:", err);
       }
 
+      minioObjectCount.set(objectCount);
       resolve();
     });
 
@@ -110,5 +119,14 @@ function streamToString(stream: any): Promise<string> {
 
 // Setup DB and run processScrollData every 15 seconds
 setupDatabase().then(() => {
-  setInterval(processScrollData, 15000);
+  setInterval(async () => {
+    try {
+      await processScrollData();
+    } catch (error) {
+      console.error('Error processing scroll data:', error);
+    }
+  }, 15000);
+}).catch(error => {
+  console.error('Failed to setup database:', error);
+  process.exit(1);
 });

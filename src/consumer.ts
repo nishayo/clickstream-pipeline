@@ -2,6 +2,7 @@ import { Kafka } from "kafkajs";
 import pkg from 'pg';
 const { Client } = pkg;
 import * as Minio from "minio";
+import client from 'prom-client';
 
 const kafka = new Kafka({ brokers: ["kafka:9092"] });
 const consumer = kafka.consumer({ groupId: "clickstream-group" });
@@ -15,6 +16,24 @@ const minioClient = new Minio.Client({
   useSSL: false,
   accessKey: "minioadmin",
   secretKey: "minioadmin",
+});
+
+const eventProcessingDuration = new client.Histogram({
+  name: "event_processing_duration_seconds",
+  help: "Time taken to process events",
+  buckets: [0.1, 0.5, 1, 2, 5],
+});
+
+const eventsByType = new client.Counter({
+  name: "events_processed_total",
+  help: "Total number of events processed by type",
+  labelNames: ['event_type'],
+});
+
+const failedEvents = new client.Counter({
+  name: "failed_events_total",
+  help: "Number of failed event processing attempts",
+  labelNames: ['stage'],
 });
 
 async function createMinIOBucket() {
@@ -57,13 +76,22 @@ async function run() {
 
   await consumer.run({
     eachMessage: async ({ message }) => {
-      const event = JSON.parse(message.value!.toString());
-      console.log("Processing:", event);
+      const end = eventProcessingDuration.startTimer();
+      try {
+        const event = JSON.parse(message.value!.toString());
+        console.log("Processing:", event);
 
-      if (event.event_type === "scroll") {
-        await storeToMinIO(event);
-      } else {
-        await storeToPostgreSQL(event);
+        eventsByType.inc({ event_type: event.event_type });
+
+        if (event.event_type === "scroll") {
+          await storeToMinIO(event);
+        } else {
+          await storeToPostgreSQL(event);
+        }
+        end(); // Record processing duration
+      } catch (error) {
+        failedEvents.inc({ stage: 'consumer' });
+        console.error('Failed to process message:', error);
       }
     },
   });

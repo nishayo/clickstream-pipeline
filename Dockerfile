@@ -13,9 +13,13 @@ RUN npm install -g typescript
 
 # Bundle app source
 COPY . .
+# Create public directory and ensure it exists
+RUN mkdir -p public
 
-# Expose the port the app runs on
+# Build TypeScript
+RUN npm run build
+
 EXPOSE 4000
+EXPOSE 4001
 
-# Command to run the app
 CMD [ "npm", "run", "start" ]

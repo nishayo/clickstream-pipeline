@@ -1,16 +1,52 @@
 import { spawn } from "child_process";
 import express, { Request, Response } from "express";
 import client from "prom-client";
+import dashboardServer from './dashboard.js';
 
 // Initialize Prometheus Registry
 const register = new client.Registry();
 
-// Custom metric: Pipeline execution count
+// Pipeline metrics
 const pipelineExecutionCount = new client.Counter({
   name: "pipeline_execution_count",
   help: "Number of times the pipeline has been executed",
 });
+
+const eventProcessingDuration = new client.Histogram({
+  name: "event_processing_duration_seconds",
+  help: "Time taken to process events",
+  buckets: [0.1, 0.5, 1, 2, 5],
+});
+
+export const eventsByType = new client.Counter({
+  name: "events_processed_total",
+  help: "Total number of events processed by type",
+  labelNames: ['event_type'],
+});
+
+const failedEvents = new client.Counter({
+  name: "failed_events_total",
+  help: "Number of failed event processing attempts",
+  labelNames: ['stage'], // producer, consumer, batch_processor
+});
+
+const minioObjectCount = new client.Gauge({
+  name: "minio_objects_count",
+  help: "Number of objects in MinIO storage",
+});
+
+const kafkaLagMetric = new client.Gauge({
+  name: "kafka_consumer_lag",
+  help: "Kafka consumer lag in messages",
+});
+
+// Register all metrics
 register.registerMetric(pipelineExecutionCount);
+register.registerMetric(eventProcessingDuration);
+register.registerMetric(eventsByType);
+register.registerMetric(failedEvents);
+register.registerMetric(minioObjectCount);
+register.registerMetric(kafkaLagMetric);
 
 // Set up Express app for exposing metrics
 const app = express();
@@ -22,9 +58,9 @@ app.get("/metrics", async (req: Request, res: Response) => {
 });
 
 // Start Express server
-const PORT = 4000;
-app.listen(PORT, () => {
-  console.log(`📊 Metrics server running on http://localhost:${PORT}/metrics`);
+const METRICS_PORT = 4001;
+app.listen(METRICS_PORT, () => {
+  console.log(`📊 Metrics server running on http://localhost:${METRICS_PORT}/metrics`);
 });
 
 // Function to run a script as a background process
@@ -53,6 +89,10 @@ async function runPipeline(): Promise<void> {
 
     console.log("🚀 Starting Batch Processor...");
     runScript("./dist/batchProcessor.js"); // Start batch processor immediately
+
+    // Start dashboard server
+    const PORT = Number(process.env.DASHBOARD_PORT) || 4000;
+    await dashboardServer.startServer(PORT);
 
     // Increment pipeline execution count metric
     pipelineExecutionCount.inc();
